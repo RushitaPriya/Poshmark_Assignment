@@ -1,12 +1,15 @@
-#!/usr/bin/env python3.6
+#!/usr/bin/env python3.7
 
 import sys
+import math
+import decimal
 
 class ResourceAllocation:
     """
     Main class for resource allocation code
     """
     cost_dict = {"us-east":{"large":0.12, "xlarge":0.23, "2xlarge":0.45, "4xlarge":0.774, "8xlarge":1.4, "10xlarge":2.82}, "us-west":{"large":0.14, "2xlarge":0.413, "4xlarge":0.89, "8xlarge":1.3, "10xlarge":2.97}, "asia":{"large":0.11, "xlarge":0.20, "4xlarge":0.67, "8xlarge":1.18}}
+    # "us-east":{"large":0.12, "xlarge":0.23, "2xlarge":0.45, "4xlarge":0.774, "8xlarge":1.4, "10xlarge":2.82}, "us-west":{"large":0.14, "2xlarge":0.413, "4xlarge":0.89, "8xlarge":1.3, "10xlarge":2.97}, 
     server_cpu_size = {"large":1, "xlarge":2, "2xlarge":4, "4xlarge":8, "8xlarge":16, "10xlarge":32}
     regions = cost_dict.keys()
 
@@ -16,8 +19,6 @@ class ResourceAllocation:
 
         :return: List of doctionaries for all regions
         """
-        import pdb;
-        pdb.set_trace()
         combined_list=[]
         
         for _region in ResourceAllocation.regions:
@@ -34,28 +35,27 @@ class ResourceAllocation:
                     break
                 else:
                     _max_cpu_size /= 2
-
-            pdb.set_trace()
-            # while _max_cpu_size >= 1 and _rem_cpus > 0:
-            sorted_cpu_list = sorted(cls.server_cpu_size.items(), key=lambda x: x[1], reverse=True)
+            _sorted_server_cost = sorted(cls.cost_dict[_region].items(), key=lambda x: x[1], reverse=True)
+            sorted_cpu_list = [i for i in sorted(cls.server_cpu_size.items(), key=lambda x: x[1], reverse=True) if i[1] <= _max_cpu_size]
             for k,v in sorted_cpu_list:
                 server_name = k if _max_cpu_size == v else "" 
                 if server_name in cls.cost_dict[_region].keys():
                     _servers_needed_at_cpu_capacity = (_rem_cpus//2)//_max_cpu_size
                     if _servers_needed_at_cpu_capacity >= _min_server:
-                        _rem_cpus = (_rem_cpus - _rem_cpus//2) + (_rem_cpus//2 - _servers_needed_at_cpu_capacity*_max_cpu_size)
                         _server_list.append((server_name,_servers_needed_at_cpu_capacity))
+                        _rem_cpus = (_rem_cpus - _rem_cpus//2) + (_rem_cpus//2 - _servers_needed_at_cpu_capacity*_max_cpu_size)
                         _cost_per_region += _servers_needed_at_cpu_capacity*hours*(cls.cost_dict[_region][server_name])
                         _min_server *= 2
                     elif _max_cpu_size*_min_server > _rem_cpus//2 and _max_cpu_size*_min_server <= _rem_cpus:
-                        _rem_cpus -= _max_cpu_size*_min_server
                         _server_list.append((server_name, _min_server))
-                        _cost_per_region += _max_cpu_size*_min_server*hours*(cls.cost_dict[_region][server_name])
+                        _rem_cpus -= _max_cpu_size*_min_server
+                        _cost_per_region += _min_server*hours*(cls.cost_dict[_region][server_name])
                         _min_server *= 2
                     elif _max_cpu_size*_min_server > _rem_cpus:
-                        _server_list.append((server_name,_rem_cpus))
-                        _cost_per_region += _rem_cpus*hours*(cls.cost_dict[_region][server_name])
-                    _max_cpu_size = _max_cpu_size//2
+                        _server_list.append((server_name, int(math.ceil(_rem_cpus/decimal.Decimal(_max_cpu_size)))))
+                        _cost_per_region += int(math.ceil(_rem_cpus/decimal.Decimal(_max_cpu_size)))*hours*(cls.cost_dict[_region][server_name])
+                        break
+                _max_cpu_size = _max_cpu_size//2
 
             region_dict["total_cost"] = _cost_per_region
             region_dict["region"] = _region
@@ -75,23 +75,26 @@ class ResourceAllocation:
             region_dict = {}
             _server_list = []
             _cost_per_region = 0
-            _sorted_server_cost = [i for i in sorted(cls.cost_dict[_region].items(), reverse=True) if price//i[1] >= 4]
             _min_server = 2
+            _sorted_server_cost = [i for i in sorted(cls.cost_dict[_region].items(), key=lambda x: x[1], reverse=True) if price//i[1] >= 4]
             _rem_cost = price
-            for i in _sorted_server_cost:
-                if (_rem_cost//2)//i[1] >= _min_server:
-                    _rem_cost = (_rem_cost - _rem_cost//2) + (_rem_cost//2 - i[1]*((_rem_cost//2)//i[1]))
-                    _server_list.append((i[0],(_rem_cost//2)//i[1]))
-                    _cost_per_region += ((_rem_cost//2)//i[1])*hours*i[1]
+            for k,v in _sorted_server_cost:
+                _current_server_size = int((_rem_cost//2)/v)
+                if _current_server_size >= _min_server:
+                    _server_list.append((k, _current_server_size))
+                    _rem_cost = (_rem_cost - _rem_cost//2) + (_rem_cost//2 - v*_current_server_size)
+                    _cost_per_region += float(_current_server_size*hours*v)
                     _min_server *= 2
-                elif (_rem_cost//2)//i[1] < _min_server and i[1]*_min_server < _rem_cost:
-                    _rem_cost -= i[1]*_min_server
-                    _server_list.append((i[0], _min_server))
-                    _cost_per_region += i[1]*_min_server*hours
+                elif _current_server_size < _min_server and v*_min_server <= _rem_cost:
+                    _server_list.append((k, _min_server))
+                    _rem_cost -= float(v*_min_server)
+                    _cost_per_region += float(v*_min_server*hours)
                     _min_server *= 2
-                elif _rem_cost != 0:
-                    _server_list.append((i[0], _rem_cost))
-                    _cost_per_region += _rem_cost*hours*i[1]
+                elif v*_min_server > _rem_cost:
+                    _server_list.append((k, int(round(_rem_cost/v))))
+                    _cost_per_region += float(round(_rem_cost/v)*hours*v)
+                    break
+
             region_dict["total_cost"] = _cost_per_region
             region_dict["region"] = _region
             region_dict["servers"] = _server_list
@@ -108,42 +111,46 @@ class ResourceAllocation:
         
         for _region in ResourceAllocation.regions:
             region_dict = {}
+            _server_list = []
             _cost_per_region = 0
             _min_server = 2
-            _server_list = []
             _rem_cpus = cpus
             _rem_cost = price
             _sorted_server_cost = [i for i in sorted(cls.cost_dict[_region].items(), key=lambda x: x[1], reverse=True) if price//i[1] >= 4]
             _max_cpu_size = cls.server_cpu_size[_sorted_server_cost[0][0]]
-            # Calculating max CPU size for which atleast 2 servers can be given
             while _max_cpu_size > 1:
                 if cpus//_max_cpu_size >= 4:
                     break
                 else:
                     _max_cpu_size /= 2
-            while _max_cpu_size >= 1 and _rem_cpus > 0 and _rem_cost > 0:
-                for k,v in cls.server_cpu_size.items():
-                    if _max_cpu_size == v:
-                        server_name = k
-                for k,v in cls.cost_dict[_region].items():
-                    if k == server_name:
-                        _servers_needed_at_cpu_capacity = (_rem_cpus//2)//_max_cpu_size
-                        if _servers_needed_at_cpu_capacity >= _min_server and (_rem_cost//2)//_servers_needed_at_cpu_capacity <= v:
-                            _rem_cpus = (_rem_cpus - _rem_cpus//2) + (_rem_cpus//2 - _servers_needed_at_cpu_capacity*_max_cpu_size)
-                            _rem_cost = (_rem_cost - _rem_cost//2) + (_rem_cost//2 - v*_servers_needed_at_cpu_capacity)
-                            _server_list.append((k,_servers_needed_at_cpu_capacity))
-                            _cost_per_region += _servers_needed_at_cpu_capacity*hours*int(v)
-                            _min_server *= 2
-                        elif (_max_cpu_size*_min_server > _rem_cpus//2 and _max_cpu_size*_min_server <= _rem_cpus) or ((_rem_cost//2)//v < _min_server and v*_min_server < _rem_cost):
-                            _rem_cpus -= _max_cpu_size*_min_server
-                            _rem_cost -= (_rem_cost - v*_min_server)
-                            _server_list.append((k, _min_server))
-                            _cost_per_region += _max_cpu_size*_min_server*hours*int(v)
-                            _min_server *= 2
-                        elif _max_cpu_size == 1:
-                            _server_list.append((k,_rem_cpus))
-                            _cost_per_region += _rem_cpus*hours*int(v)
-                _max_cpu_size = _max_cpu_size/2
+
+            sorted_cpu_list = []
+            for i,j in _sorted_server_cost:
+                sorted_cpu_list.append((i, cls.server_cpu_size[i]))
+
+            for k,v in sorted_cpu_list:
+                server_name = k if _max_cpu_size == v else "" 
+                if server_name in cls.cost_dict[_region].keys():
+                    _servers_needed_at_cpu_capacity = (_rem_cpus//2)//_max_cpu_size
+                    if _servers_needed_at_cpu_capacity >= _min_server and (_rem_cost//2)/_servers_needed_at_cpu_capacity <= v:
+                        _server_list.append((server_name,_servers_needed_at_cpu_capacity))
+                        _rem_cpus = (_rem_cpus - _rem_cpus//2) + (_rem_cpus//2 - _servers_needed_at_cpu_capacity*_max_cpu_size)
+                        _rem_cost = (_rem_cost - _rem_cost//2) + (_rem_cost//2 - v*_servers_needed_at_cpu_capacity)
+                        _cost_per_region += _servers_needed_at_cpu_capacity*hours*(cls.cost_dict[_region][server_name])
+                        _min_server *= 2
+                    elif (_max_cpu_size*_min_server > _rem_cpus//2 and _max_cpu_size*_min_server <= _rem_cpus) or (int((_rem_cost//2)/v) < _min_server and v*_min_server <= _rem_cost):
+                        _server_list.append((server_name, _min_server))
+                        _rem_cpus -= _max_cpu_size*_min_server
+                        _rem_cost -= float(v*_min_server)
+                        _cost_per_region += _min_server*hours*(cls.cost_dict[_region][server_name])
+                        _min_server *= 2
+                    elif _max_cpu_size*_min_server > _rem_cpus or v*_min_server > _rem_cost:
+                        _rem_cost -= float(v*_min_server)
+                        _servers = int(math.ceil(_rem_cpus/decimal.Decimal(_max_cpu_size)))
+                        _server_list.append((server_name,_servers))
+                        _cost_per_region += _servers*hours*(cls.cost_dict[_region][server_name])
+                        break
+                _max_cpu_size = _max_cpu_size//2
             region_dict["total_cost"] = _cost_per_region
             region_dict["region"] = _region
             region_dict["servers"] = _server_list
@@ -160,7 +167,7 @@ class ResourceAllocation:
         :return: Dict of regions, will cost and server details 
         """
         if price and not cpus:
-            list1 = cls._final_dict_based_on_price(price, hours)
+            list1 = cls._final_dict_based_on_price(price/hours, hours)
             print(list1)
         
         elif cpus and not price:
@@ -168,7 +175,7 @@ class ResourceAllocation:
             print(list1)
 
         elif cpus and price:
-            list1 = cls._final_dict_based_on_price_and_cpus(price, cpus, hours)
+            list1 = cls._final_dict_based_on_price_and_cpus(price/hours, cpus, hours)
             print(list1)
 
         else:
@@ -182,7 +189,7 @@ if __name__ == '__main__':
     ra.get_costs(hours=10,cpus=110)
 
     #unit test - 2
-    ra.get_costs(hours=10,price=40)
+    ra.get_costs(hours=10,price=90)
 
     #unit test - 2
-    ra.get_costs(hours=10,cpus=110,price=40)
+    ra.get_costs(hours=10,cpus=110,price=80)
