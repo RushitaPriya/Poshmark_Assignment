@@ -2,7 +2,6 @@
 
 import sys
 import math
-import decimal
 
 class ResourceAllocation:
     """
@@ -52,8 +51,8 @@ class ResourceAllocation:
                         _cost_per_region += _min_server*hours*(cls.cost_dict[_region][server_name])
                         _min_server *= 2
                     elif _max_cpu_size*_min_server > _rem_cpus:
-                        _server_list.append((server_name, int(math.ceil(_rem_cpus/decimal.Decimal(_max_cpu_size)))))
-                        _cost_per_region += int(math.ceil(_rem_cpus/decimal.Decimal(_max_cpu_size)))*hours*(cls.cost_dict[_region][server_name])
+                        _server_list.append((server_name, int(math.ceil(_rem_cpus/(_max_cpu_size)))))
+                        _cost_per_region += int(math.ceil(_rem_cpus/(_max_cpu_size)))*hours*(cls.cost_dict[_region][server_name])
                         break
                 _max_cpu_size = _max_cpu_size//2
 
@@ -168,15 +167,16 @@ class ResourceAllocation:
         """
         if price and not cpus:
             list1 = cls._final_dict_based_on_price(price/hours, hours)
-            print(list1)
+            #print(list1)
+            print(sorted(list1, key = lambda i: i['total_cost']))
         
         elif cpus and not price:
             list1 = cls._final_dict_based_on_cpu(cpus, hours)
-            print(list1)
+            print(sorted(list1, key = lambda i: i['total_cost']))
 
         elif cpus and price:
             list1 = cls._final_dict_based_on_price_and_cpus(price/hours, cpus, hours)
-            print(list1)
+            print(sorted(list1, key = lambda i: i['total_cost']))
 
         else:
             raise Exception("Price and CPUs together couldn't be 0")
@@ -191,5 +191,5 @@ if __name__ == '__main__':
     #unit test - 2
     ra.get_costs(hours=10,price=90)
 
-    #unit test - 2
+    #unit test - 3
     ra.get_costs(hours=10,cpus=110,price=80)
